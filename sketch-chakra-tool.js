@@ -50,20 +50,34 @@ function ChakraTool() {
         output && copyContent(output)
     }
 
+    // 产生平级树
+    this.generateFlatTree = (layer, tree) => {
+        // const compRect = layer.rect
+        // 找到内部的组件
+        // ids.push(layer.objectID)
+        const findWraps = this.getInnerElements(layer)
+        // console.log('ids', ids)
+        findWraps.forEach(it => {
+            tree.push({ id: it.objectID, pid: layer.objectID, ele: it.name}) 
+            this.generateFlatTree(it, tree)
+            // ids.push(it.objectID)
+        })
+    }
+
     // 获取指定Layer 下的内部元素.
-    this.getInnerElements = (layer, ids) =>{
-        // if ((ids || []).includes(layer.objectID)) {
+    this.getInnerElements = (layer) =>{
+        // if (ids && ids.includes(layer.objectID)) {
         //     return []
         // }
         const compRect = layer.rect
-        console.log(layer.name, layer.objectID)
+        // console.log(layer.name, layer.objectID)
         // 找到内部的组件
         // let extendWraps = this.page.layers.filter(it => layer.objectIDs && layer.objectIDs.includes(it.objectID))
         // let extendWrapIds = extendWraps.map(it => it.objectID)
         // console.log(extendWrapIds)
         let extendWrapIds = this.page.layers.filter(it => it.pid == layer.objectID).map(it => it.objectID)
-        let findWraps = this.page.layers.filter(it => (extendWrapIds || []).includes(it.objectID) || ((it.rect.x > compRect.x) && (it.rect.y >= compRect.y) && (it.rect.x + it.rect.width) <= (compRect.x + compRect.width) && (it.rect.y + it.rect.height) <= (compRect.y + compRect.height)))
-        .sort((a, b) => a.rect.x - b.rect.x)
+        let findWraps = this.page.layers.filter(it => (extendWrapIds || []).includes(it.objectID) || ((it.rect.x >= compRect.x) && (it.rect.y >= compRect.y) && (it.rect.x + it.rect.width) <= (compRect.x + compRect.width) && (it.rect.y + it.rect.height) < (compRect.y + compRect.height)))
+        .filter(it => it.objectID != layer.objectID).sort((a, b) => a.rect.x - b.rect.x)
         // console.log(layer.name)
         // if (layer.name == '补充分组') {
         // }
@@ -73,19 +87,31 @@ function ChakraTool() {
         // }
         return findWraps; //[...findWraps, ...extendWraps]
     }
+
     // 针对水平方向的平级元素, 为Sketch补充Layer, 为了生成代码有层级结构
     this.generateLineWrap = () => {
-        // 找到内部组件纵坐标和高度能分到一组的
-        let grouped = this.getInnerElements(this.currentLayer).reduce((acc, cur) => {
-            let key = `${cur.rect.y}`
+        // 找到内部组件纵坐标 + 高度的一半 能在中间上下5个像素的 去分到一组
+        const innerElements = this.getInnerElements(this.currentLayer).filter(it => it.name != '补充分组')
+        let grouped = innerElements.reduce((acc, cur) => {
+            let key = cur.rect.y + cur.rect.height / 2
+
+            let foundMatchRange = Object.entries(acc || {}).find(it => {
+                console.log(it, key)
+                return it[0] > key - 5 && it[0] < key + 5 //&& it[1].rect //&& Math.abs(it[1].rect.height - cur.rect.height) < 20
+            })
+            if (foundMatchRange) {
+                key = foundMatchRange[0]
+            }
+            // console.log('foundMatchRange', foundMatchRange)
             if (acc[key]) 
-                acc[key].push({ id:cur.objectID, name: cur.name }) 
+                acc[key].push({ id: cur.objectID, name: cur.name, rect: cur.rect }) 
             else
-                acc[key] = [{ id:cur.objectID, name: cur.name}]
+                acc[key] = [{ id: cur.objectID, name: cur.name, rect: cur.rect}]
             return acc;
         }, {})
         console.log(grouped)
-        let newLayers = Object.values(grouped).filter(it => it.length > 1).map(it => {
+        
+        let newLayers = Object.values(grouped).filter(it => it.length > 1 && it.length < innerElements.length).map(it => {
             let ids = it.map(it => it.id)
             return {
                 type: 'shape',
@@ -101,7 +127,7 @@ function ChakraTool() {
         })
         console.log(newLayers)
         newLayers.forEach(it => {
-            if (!this.page.layers.find(l => l.objectID == it.objectID)) {
+            if (this.page.layers.filter(l => l.objectID == it.objectID) < 1) {
                 this.page.layers.push(it)
             }
         })
@@ -160,19 +186,9 @@ function ChakraTool() {
         if (result.length ==0) {
             result.push({ id: this.currentLayerObjectID })
         }
+        // 过滤掉空的container
+        // result = result.filter(it => it.id.indexOf('|') != -1 && (it.children || []).length > 0 )
         return { tree: result.slice(0), mappedTree }
-    }
-
-    // 产生平级树
-    this.generateFlatTree = (layer, tree, ids) => {
-        // const compRect = layer.rect
-        // 找到内部的组件
-        const findWraps = this.getInnerElements(layer, ids)
-        ids.push(...findWraps.map(it => it.objectID))
-        findWraps.forEach(it => {
-            tree.push({ id: it.objectID, pid: layer.objectID, ele: it.name}) 
-            this.generateFlatTree(it, tree, ids)
-        })
     }
 
     // 生成单个元素的代码
